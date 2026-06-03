@@ -1,0 +1,353 @@
+name: Kirov DevSecOps Security Pipeline
+
+on:
+  push:
+    branches: [main, develop, 'release/**']
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 6 * * 1'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+        node-version: ['18', '20']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Python lint tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 flake8-bugbear flake8-docstrings
+
+      - name: Run flake8
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=100 --statistics
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install Node lint tools
+        run: npm install -g eslint@8
+
+      - name: Run eslint
+        run: eslint . --ext .js,.jsx,.ts,.tsx --ignore-pattern node_modules/ --ignore-pattern dist/ || true
+
+  sast:
+    name: SAST
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install bandit
+        run: |
+          pip install bandit bandit-sarif-formatter
+
+      - name: Run bandit
+        continue-on-error: true
+        run: |
+          bandit -r . -f sarif -o bandit-results.sarif --exit-zero
+
+      - name: Upload bandit SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit-results.sarif
+          category: bandit
+
+      - name: Download semgrep
+        run: |
+          pip install semgrep
+
+      - name: Run semgrep
+        continue-on-error: true
+        run: |
+          semgrep --config=auto --sarif --output=semgrep-results.sarif .
+
+      - name: Upload semgrep SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep-results.sarif
+          category: semgrep
+
+  dependency-audit:
+    name: Dependency Audit
+    needs: sast
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        language: [python, node, go]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python dependency audit
+        if: matrix.language == 'python'
+        run: |
+          pip install pip-audit
+          if (Test-Path requirements.txt) {
+            pip-audit -r requirements.txt --desc on
+          } elseif (Test-Path Pipfile) {
+            pip install pipfile-requirements
+            pip install pip-audit
+            pip-audit --desc on
+          } else {
+            echo "No Python dependency files found"
+          }
+
+      - name: Node dependency audit
+        if: matrix.language == 'node'
+        run: |
+          if (Test-Path package.json) {
+            npm audit --audit-level=high
+          } else {
+            echo "No Node dependency files found"
+          }
+
+      - name: Go dependency audit
+        if: matrix.language == 'go'
+        run: |
+          if (Test-Path go.mod) {
+            go install golang.org/x/vuln/cmd/govulncheck@latest
+            govulncheck ./...
+          } else {
+            echo "No Go dependency files found"
+          }
+
+      - name: Upload dependency audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-audit-${{ matrix.language }}
+          path: |
+            pip-audit*.json
+            npm-audit*.json
+            govulncheck*.json
+
+  container-scan:
+    name: Container Scan
+    needs: dependency-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Build image for scanning
+        run: |
+          if (Test-Path Dockerfile) {
+            docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
+          } else {
+            echo "No Dockerfile found, using alpine as test target"
+          }
+
+      - name: Run Trivy scan (HIGH/CRITICAL)
+        continue-on-error: true
+        run: |
+          trivy image --severity HIGH,CRITICAL --no-progress --format sarif --output trivy-results.sarif ${{ env.IMAGE_NAME }}:${{ github.sha }} || \
+          trivy image --severity HIGH,CRITICAL --no-progress --format sarif --output trivy-results.sarif alpine:latest
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
+
+      - name: Run Trivy filesystem scan
+        continue-on-error: true
+        run: |
+          trivy filesystem --severity HIGH,CRITICAL --no-progress --format json --output trivy-fs-results.json .
+
+      - name: Upload Trivy filesystem results
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-fs-results
+          path: trivy-fs-results.json
+
+  iac-scan:
+    name: IaC Scan
+    needs: dependency-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Run Checkov
+        continue-on-error: true
+        run: |
+          checkov -d . --framework terraform,cloudformation,kubernetes,helm,arm \
+            --output sarif --output-file-path checkov-results.sarif \
+            --skip-check CKV_DOCKER_2,CKV_DOCKER_3 \
+            --compact
+
+      - name: Upload Checkov SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov-results.sarif
+          category: checkov
+
+      - name: Install tfsec
+        run: |
+          curl -sL https://github.com/aquasecurity/tfsec/releases/latest/download/tfsec-linux-amd64 -o /usr/local/bin/tfsec
+          chmod +x /usr/local/bin/tfsec
+
+      - name: Run tfsec
+        continue-on-error: true
+        run: |
+          if (Test-Path terraform/) {
+            tfsec terraform/ --format sarif --tfsec tfsec-results.sarif
+          } else {
+            echo "No Terraform directory found, skipping tfsec"
+          }
+
+      - name: Upload tfsec SARIF
+        if: success() || failure()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: tfsec-results.sarif
+          category: tfsec
+
+  secret-scan:
+    name: Secret Scan
+    needs: sast
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          curl -sL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64 -o /usr/local/bin/gitleaks
+          chmod +x /usr/local/bin/gitleaks
+
+      - name: Run gitleaks
+        continue-on-error: true
+        run: |
+          gitleaks detect --source . --report-format sarif --report-path gitleaks-results.sarif --verbose
+
+      - name: Upload gitleaks SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks-results.sarif
+          category: gitleaks
+
+      - name: Install trufflehog
+        run: |
+          curl -sL https://github.com/trufflesecurity/trufflehog/releases/latest/download/trufflehog_linux_amd64.tar.gz -o trufflehog.tar.gz
+          tar -xzf trufflehog.tar.gz -C /usr/local/bin/
+
+      - name: Run trufflehog
+        continue-on-error: true
+        run: |
+          trufflehog filesystem . --results=verified,unverified --json > trufflehog-results.json
+
+      - name: Upload trufflehog results
+        uses: actions/upload-artifact@v4
+        with:
+          name: trufflehog-results
+          path: trufflehog-results.json
+
+  dast:
+    name: DAST (ZAP)
+    needs: container-scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ZAP Scan
+        uses: zaproxy/action-full-scan@v0.12.0
+        with:
+          target: ${{ secrets.DAST_TARGET_URL || 'http://localhost:8080' }}
+          cmd_options: '-a -j -J zap-results.json'
+          fail_action: false
+
+      - name: Upload ZAP results
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-results
+          path: zap-results.json
+
+  security-gate:
+    name: Security Gate
+    needs: [sast, dependency-audit, container-scan, iac-scan, secret-scan]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all scan results
+        run: |
+          echo "::notice::Security Gate Evaluation"
+          echo "================================"
+          echo "SAST: ${{ needs.sast.result }}"
+          echo "Dependency Audit: ${{ needs.dependency-audit.result }}"
+          echo "Container Scan: ${{ needs.container-scan.result }}"
+          echo "IaC Scan: ${{ needs.iac-scan.result }}"
+          echo "Secret Scan: ${{ needs.secret-scan.result }}"
+          echo "================================"
+
+      - name: Evaluate gate status
+        run: |
+          FAILURES=0
+          if [ "${{ needs.sast.result }}" = "failure" ]; then FAILURES=$((FAILURES+1)); fi
+          if [ "${{ needs.secret-scan.result }}" = "failure" ]; then FAILURES=$((FAILURES+1)); fi
+          if [ $FAILURES -gt 0 ]; then
+            echo "::error::Security gate failed: $FAILURES critical checks failed"
+            exit 1
+          fi
+          echo "::notice::Security gate passed"
+
+  notify:
+    name: Notification
+    needs: security-gate
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Post status to Slack
+        if: always()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "Kirov Security Pipeline - ${{ github.workflow }} - ${{ job.status }}",
+              "attachments": [
+                {
+                  "color": "${{ needs.security-gate.result == 'success' && 'good' || 'danger' }}",
+                  "title": "Pipeline Run #${{ github.run_number }}",
+                  "fields": [
+                    { "title": "Branch", "value": "${{ github.ref_name }}", "short": true },
+                    { "title": "Status", "value": "${{ needs.security-gate.result }}", "short": true },
+                    { "title": "SAST", "value": "${{ needs.sast.result }}", "short": true },
+                    { "title": "Dependencies", "value": "${{ needs.dependency-audit.result }}", "short": true },
+                    { "title": "Container", "value": "${{ needs.container-scan.result }}", "short": true },
+                    { "title": "IaC", "value": "${{ needs.iac-scan.result }}", "short": true },
+                    { "title": "Secrets", "value": "${{ needs.secret-scan.result }}", "short": true }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

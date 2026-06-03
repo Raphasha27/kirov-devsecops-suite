@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kirov DevSecOps Dashboard</title>
+<style>
+  :root {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-card: #1c2333;
+    --bg-hover: #242b3d;
+    --text-primary: #f0f6fc;
+    --text-secondary: #8b949e;
+    --text-muted: #6e7681;
+    --border: #30363d;
+    --green: #3fb950;
+    --green-bg: rgba(63,185,80,0.15);
+    --red: #f85149;
+    --red-bg: rgba(248,81,73,0.15);
+    --orange: #d29922;
+    --orange-bg: rgba(210,153,34,0.15);
+    --blue: #58a6ff;
+    --blue-bg: rgba(88,166,255,0.15);
+    --purple: #bc8cff;
+    --purple-bg: rgba(188,140,255,0.15);
+    --cyan: #39d2c0;
+    --cyan-bg: rgba(57,210,192,0.15);
+    --severity-critical: #f85149;
+    --severity-high: #d29922;
+    --severity-medium: #58a6ff;
+    --severity-low: #8b949e;
+    --shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+      Ubuntu, Cantarell, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+    padding: 20px;
+  }
+  .container { max-width: 1400px; margin: 0 auto; }
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 20px 0; border-bottom: 1px solid var(--border); margin-bottom: 24px;
+  }
+  header h1 { font-size: 24px; font-weight: 600; }
+  header h1 span { color: var(--cyan); }
+  .last-updated { color: var(--text-muted); font-size: 13px; }
+  .badge-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: 20px;
+    font-size: 12px; font-weight: 500;
+    border: 1px solid var(--border);
+  }
+  .badge.passing { background: var(--green-bg); border-color: var(--green); color: var(--green); }
+  .badge.failing { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+  .badge.warning { background: var(--orange-bg); border-color: var(--orange); color: var(--orange); }
+  .badge.info { background: var(--blue-bg); border-color: var(--blue); color: var(--blue); }
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px; margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 20px;
+    box-shadow: var(--shadow); transition: transform 0.2s;
+  }
+  .stat-card:hover { transform: translateY(-2px); }
+  .stat-card .label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+  .stat-card .value { font-size: 32px; font-weight: 700; margin: 8px 0; }
+  .stat-card .sub { font-size: 13px; color: var(--text-secondary); }
+  .card-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 20px; margin-bottom: 24px;
+  }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; box-shadow: var(--shadow);
+  }
+  .card.full { grid-column: 1 / -1; }
+  .card-header {
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .card-header h2 { font-size: 15px; font-weight: 600; }
+  .card-body { padding: 20px; }
+  .pipeline-stage { margin-bottom: 12px; }
+  .pipeline-stage:last-child { margin-bottom: 0; }
+  .stage-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; border-radius: 6px; cursor: pointer;
+    transition: background 0.2s;
+  }
+  .stage-header:hover { background: var(--bg-hover); }
+  .stage-name { display: flex; align-items: center; gap: 10px; font-weight: 500; }
+  .stage-name .icon { font-size: 16px; }
+  .status-badge {
+    padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;
+    text-transform: uppercase;
+  }
+  .status-badge.success { background: var(--green-bg); color: var(--green); }
+  .status-badge.failure { background: var(--red-bg); color: var(--red); }
+  .status-badge.running { background: var(--blue-bg); color: var(--blue); }
+  .status-badge.pending { background: rgba(139,148,158,0.15); color: var(--text-secondary); }
+  .status-badge.warning { background: var(--orange-bg); color: var(--orange); }
+  .status-badge.skipped { background: rgba(139,148,158,0.1); color: var(--text-muted); }
+  .stage-details { padding: 12px 16px 12px 48px; display: none; }
+  .stage-details.open { display: block; }
+  .stage-detail-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; font-size: 13px; color: var(--text-secondary);
+  }
+  .detail-count { font-weight: 600; }
+  .detail-count.critical { color: var(--severity-critical); }
+  .detail-count.high { color: var(--severity-high); }
+  .detail-count.medium { color: var(--severity-medium); }
+  .detail-count.low { color: var(--severity-low); }
+  .compliance-gauge {
+    display: flex; flex-direction: column; align-items: center; padding: 20px;
+  }
+  .gauge {
+    width: 160px; height: 160px; border-radius: 50%;
+    background: conic-gradient(var(--green) 0% 85%, var(--orange) 85% 92%, var(--red) 92% 100%);
+    display: flex; align-items: center; justify-content: center; margin-bottom: 16px;
+  }
+  .gauge-inner {
+    width: 130px; height: 130px; border-radius: 50%;
+    background: var(--bg-card); display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+  }
+  .gauge-value { font-size: 36px; font-weight: 700; }
+  .gauge-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; }
+  .trend-chart { height: 200px; position: relative; display: flex; align-items: flex-end; gap: 8px; padding: 10px 0; }
+  .trend-bar {
+    flex: 1; border-radius: 4px 4px 0 0; min-height: 4px;
+    position: relative; transition: height 0.3s;
+  }
+  .trend-bar:hover { opacity: 0.8; }
+  .trend-bar .bar-label {
+    position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%);
+    font-size: 10px; color: var(--text-muted); white-space: nowrap;
+  }
+  .trend-bar .bar-value {
+    position: absolute; top: -18px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+  }
+  .scan-results-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .scan-results-table th {
+    text-align: left; padding: 10px 12px; border-bottom: 2px solid var(--border);
+    color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase;
+  }
+  .scan-results-table td {
+    padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text-secondary);
+  }
+  .scan-results-table tr:hover td { background: var(--bg-hover); }
+  .severity-tag {
+    padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;
+  }
+  .severity-tag.critical { background: var(--red-bg); color: var(--red); }
+  .severity-tag.high { background: var(--orange-bg); color: var(--orange); }
+  .severity-tag.medium { background: var(--blue-bg); color: var(--blue); }
+  .severity-tag.low { background: rgba(139,148,158,0.15); color: var(--text-secondary); }
+  .vuln-bar { height: 8px; border-radius: 4px; margin: 2px 0; }
+  .vuln-bar.critical { background: var(--red); }
+  .vuln-bar.high { background: var(--orange); }
+  .vuln-bar.medium { background: var(--blue); }
+  .vuln-bar.low { background: var(--text-muted); }
+  .summary-bar {
+    display: flex; height: 12px; border-radius: 6px; overflow: hidden; margin-top: 8px;
+  }
+  .summary-bar .seg { transition: width 0.3s; }
+  .summary-bar .seg.critical { background: var(--red); }
+  .summary-bar .seg.high { background: var(--orange); }
+  .summary-bar .seg.medium { background: var(--blue); }
+  .summary-bar .seg.low { background: var(--text-muted); }
+  .summary-legend { display: flex; gap: 16px; margin-top: 8px; flex-wrap: wrap; }
+  .summary-legend span { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .integration-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px; margin-bottom: 24px;
+  }
+  .integration-card {
+    padding: 14px; border: 1px solid var(--border); border-radius: 6px;
+    text-align: center; transition: all 0.2s; cursor: default;
+  }
+  .integration-card:hover { border-color: var(--cyan); background: var(--bg-hover); }
+  .integration-card .repo-name { font-weight: 600; font-size: 14px; }
+  .integration-card .repo-status { font-size: 12px; margin-top: 4px; }
+  @media (max-width: 768px) {
+    .card-grid { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .integration-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .pulse { animation: pulse 2s infinite; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1><span>Kirov</span> DevSecOps</h1>
+      <div class="last-updated">Last updated: <span id="lastUpdated">Loading...</span></div>
+    </div>
+    <div>
+      <span class="badge passing">&#9679; Pipeline: <span id="pipelineStatus">Operational</span></span>
+      <span class="badge info" id="complianceBadge">&#9679; Compliance: <span id="complianceStatus">--%</span></span>
+    </div>
+  </header>
+
+  <div class="badge-row" id="badgeRow">
+    <span class="badge passing">CI/CD Scanning active</span>
+    <span class="badge info">14 repositories</span>
+    <span class="badge warning">6 active vulnerabilities</span>
+    <span class="badge info">7 scanners online</span>
+  </div>
+
+  <div class="stats-grid" id="statsGrid">
+    <div class="stat-card">
+      <div class="label">Total Scans</div>
+      <div class="value" id="totalScans">--</div>
+      <div class="sub">this week</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Vulnerabilities</div>
+      <div class="value" id="totalVulns">--</div>
+      <div class="sub" id="vulnChange">across all repos</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Compliance</div>
+      <div class="value" id="complianceScore">--%</div>
+      <div class="sub">CIS benchmark</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Security Gate</div>
+      <div class="value" id="gateStatus">--</div>
+      <div class="sub">last pipeline run</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Fixable</div>
+      <div class="value" id="fixableCount">--</div>
+      <div class="sub">vulnerabilities with patch</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Repos Scanned</div>
+      <div class="value">14</div>
+      <div class="sub">of 14 configured</div>
+    </div>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-header">
+        <h2>&#9888; Vulnerability Severity Breakdown</h2>
+        <span class="status-badge warning" id="vulnSummaryBadge">-- total</span>
+      </div>
+      <div class="card-body">
+        <div class="summary-bar" id="severityBar">
+          <div class="seg critical" style="width:0%" id="barCritical"></div>
+          <div class="seg high" style="width:0%" id="barHigh"></div>
+          <div class="seg medium" style="width:0%" id="barMedium"></div>
+          <div class="seg low" style="width:0%" id="barLow"></div>
+        </div>
+        <div class="summary-legend">
+          <span><span class="legend-dot" style="background:var(--red)"></span> Critical: <strong id="countCritical">0</strong></span>
+          <span><span class="legend-dot" style="background:var(--orange)"></span> High: <strong id="countHigh">0</strong></span>
+          <span><span class="legend-dot" style="background:var(--blue)"></span> Medium: <strong id="countMedium">0</strong></span>
+          <span><span class="legend-dot" style="background:var(--text-muted)"></span> Low: <strong id="countLow">0</strong></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2>Compliance Score</h2>
+        <span class="status-badge success" id="complianceBadgeSmall">CIS Benchmark</span>
+      </div>
+      <div class="card-body">
+        <div class="compliance-gauge">
+          <div class="gauge">
+            <div class="gauge-inner">
+              <div class="gauge-value" id="gaugeScore">--%</div>
+              <div class="gauge-label">Score</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:24px;text-align:center;font-size:13px;color:var(--text-secondary)">
+            <div><strong style="color:var(--green);font-size:20px" id="compliancePass">0</strong><br>Passed</div>
+            <div><strong style="color:var(--red);font-size:20px" id="complianceFail">0</strong><br>Failed</div>
+            <div><strong style="font-size:20px" id="complianceTotal">0</strong><br>Total</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card full">
+    <div class="card-header">
+      <h2>&#128200; Vulnerability Trends (Last 8 Weeks)</h2>
+      <span class="status-badge info">Trending</span>
+    </div>
+    <div class="card-body">
+      <div class="trend-chart" id="trendChart">
+        <div class="trend-bar" style="height:60%;background:var(--red)" data-week="W1">
+          <span class="bar-value" id="trendW1">0</span>
+          <span class="bar-label">Week 1</span>
+        </div>
+        <div class="trend-bar" style="height:55%;background:var(--orange)" data-week="W2">
+          <span class="bar-value" id="trendW2">0</span>
+          <span class="bar-label">Week 2</span>
+        </div>
+        <div class="trend-bar" style="height:45%;background:var(--orange)" data-week="W3">
+          <span class="bar-value" id="trendW3">0</span>
+          <span class="bar-label">Week 3</span>
+        </div>
+        <div class="trend-bar" style="height:50%;background:var(--blue)" data-week="W4">
+          <span class="bar-value" id="trendW4">0</span>
+          <span class="bar-label">Week 4</span>
+        </div>
+        <div class="trend-bar" style="height:40%;background:var(--blue)" data-week="W5">
+          <span class="bar-value" id="trendW5">0</span>
+          <span class="bar-label">Week 5</span>
+        </div>
+        <div class="trend-bar" style="height:35%;background:var(--green)" data-week="W6">
+          <span class="bar-value" id="trendW6">0</span>
+          <span class="bar-label">Week 6</span>
+        </div>
+        <div class="trend-bar" style="height:30%;background:var(--green)" data-week="W7">
+          <span class="bar-value" id="trendW7">0</span>
+          <span class="bar-label">Week 7</span>
+        </div>
+        <div class="trend-bar" style="height:25%;background:var(--green)" data-week="W8">
+          <span class="bar-value" id="trendW8">0</span>
+          <span class="bar-label">This Week</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card full">
+    <div class="card-header">
+      <h2>&#128268; Pipeline Health</h2>
+      <span class="status-badge success">All systems nominal</span>
+    </div>
+    <div class="card-body" id="pipelineStages">
+      <div class="pipeline-stage">
+        <div class="stage-header" onclick="toggleStage(this)">
+          <div class="stage-name"><span class="icon">&#128220;</span> Lint</div>
+          <div class="status-badge success">PASSING</div>
+        </div>
+        <div class="stage-details">
+          <div class="stage-detail-item"><span>Flake8</span><span class="detail-count">0 warnings</span></div>
+          <div class="stage-detail-item"><span>ESLint</span><span class="detail-count">0 warnings</span></div>
+        </div>
+      </div>
+      <div class="pipeline-stage">
+        <div class="stage-header" onclick="toggleStage(this)">
+          <div class="stage-name"><span class="icon">&#128270;</span> SAST</div>
+          <div class="status-badge success">PASSING</div>
+        </div>
+        <div class="stage-details">
+          <div class="stage-detail-item"><span>Bandit</span><span class="detail-count low">2 low</span></div>
+          <div class="stage-detail-item"><span>Semgrep</span><span class="detail-count low">1 low</span></div>
+        </div>
+      </div>
+      <div class="pipeline-stage">
+        <div class="stage-header" onclick="toggleStage(this)">
+          <div class="stage-name"><span class="icon">&#128230;</span> Dependency Audit</div>
+          <div class="status-badge warning">3 VULNS</div>
+        </div>
+        <div class="stage-details">
+          <div class="stage-detail-item"><span>pip-audit</span><span class="detail-count medium">2 medium</span></div>
+          <div class="stage-detail-item"><span>npm audit</span><span class="detail-count high">1 high</span></div>
+          <div class="stage-detail-item"><span>govulncheck</span><span class="detail-count low">0</span></div>
+        </div>
+      </div>
+      <div class="pipeline-stage">
+        <div class="stage-header" onclick="toggleStage(this)">
+          <div class="stage-name"><span class="icon">&#128267;</span> Container Scan</div>
+          <div class="status-badge warning">5 VULNS</div>
+        </div>
+        <div class="stage-details">
+          <div class="stage-detail-item"><span>Trivy</span><span class="detail-count critical">1 critical</span></div>
+          <div class="stage-detail-item"><span>Grype</span><span class="detail-count high">2 high</span></div>
+          <div class="stage-detail-item"><span>Base Images</span><span class="detail-count medium">2 medium</span></div>
+        </div>
+      </div>
+      <div class="pipeline-stage">
+        <div class="stage-header" onclick="toggleStage(this)">
+          <div class="stage-name"><span class="icon">&#127963;</span> IaC Scan</div>
+          <div class="status-badge success">PASSING</div>
+        </div>
+        <div class="stage-details">
+          <div class="stage-detail-item"><span>Checkov</span><span class="detail-count">0 failures</span></div>
+          <div class="stage-detail-item"><span>tfsec</span><span class="detail-count">0 failures</span></div>
+        </div>
+      </div>
+      <div class="pipeline-stage">
+        <div class="stage-header" onclick="toggleStage(this)">
+          <div class="stage-name"><span class="icon">&#128274;</span> Secret Scan</div>
+          <div class="status-badge success">CLEAN</div>
+        </div>
+        <div class="stage-details">
+          <div class="stage-detail-item"><span>Gitleaks</span><span class="detail-count">0 leaks</span></div>
+          <div class="stage-detail-item"><span>TruffleHog</span><span class="detail-count">0 leaks</span></div>
+        </div>
+      </div>
+      <div class="pipeline-stage">
+        <div class="stage-header" onclick="toggleStage(this)">
+          <div class="stage-name"><span class="icon">&#128752;</span> DAST</div>
+          <div class="status-badge pending">SCHEDULED</div>
+        </div>
+        <div class="stage-details">
+          <div class="stage-detail-item"><span>ZAP Scan</span><span class="detail-count">Runs weekly</span></div>
+        </div>
+      </div>
+      <div class="pipeline-stage">
+        <div class="stage-header" onclick="toggleStage(this)">
+          <div class="stage-name"><span class="icon">&#128737;</span> Security Gate</div>
+          <div class="status-badge success">PASSED</div>
+        </div>
+        <div class="stage-details">
+          <div class="stage-detail-item"><span>Gate Status</span><span class="detail-count" style="color:var(--green)">All checks passed</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card full">
+    <div class="card-header">
+      <h2>&#128196; Recent Scan Results</h2>
+      <span class="status-badge info">Last 10 scans</span>
+    </div>
+    <div class="card-body" style="overflow-x:auto">
+      <table class="scan-results-table" id="scanResultsTable">
+        <thead>
+          <tr>
+            <th>Scanner</th>
+            <th>Target</th>
+            <th>Vulnerability</th>
+            <th>Severity</th>
+            <th>Package</th>
+            <th>Fixed In</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="scanResultsBody">
+          <tr>
+            <td>Trivy</td>
+            <td>app:latest</td>
+            <td>CVE-2024-21626</td>
+            <td><span class="severity-tag critical">CRITICAL</span></td>
+            <td>runc</td>
+            <td>1.1.12</td>
+            <td>Fix available</td>
+          </tr>
+          <tr>
+            <td>Grype</td>
+            <td>app:latest</td>
+            <td>CVE-2024-3094</td>
+            <td><span class="severity-tag high">HIGH</span></td>
+            <td>liblzma</td>
+            <td>5.6.0</td>
+            <td>Fix available</td>
+          </tr>
+          <tr>
+            <td>Checkov</td>
+            <td>main.tf</td>
+            <td>CKV_AWS_22</td>
+            <td><span class="severity-tag high">HIGH</span></td>
+            <td>sg-open-ssh</td>
+            <td>--</td>
+            <td>Remediate</td>
+          </tr>
+          <tr>
+            <td>pip-audit</td>
+            <td>requirements.txt</td>
+            <td>CVE-2024-1135</td>
+            <td><span class="severity-tag medium">MEDIUM</span></td>
+            <td>requests</td>
+            <td>2.31.0</td>
+            <td>Fix available</td>
+          </tr>
+          <tr>
+            <td>Bandit</td>
+            <td>app.py:42</td>
+            <td>B105 - hardcoded password</td>
+            <td><span class="severity-tag medium">MEDIUM</span></td>
+            <td>hardcoded_password</td>
+            <td>--</td>
+            <td>Review</td>
+          </tr>
+          <tr>
+            <td>tfsec</td>
+            <td>network.tf</td>
+            <td>AWS-042</td>
+            <td><span class="severity-tag medium">MEDIUM</span></td>
+            <td>vpc_flow_logs</td>
+            <td>--</td>
+            <td>Remediate</td>
+          </tr>
+          <tr>
+            <td>Gitleaks</td>
+            <td>.env.example</td>
+            <td>GitHub Token</td>
+            <td><span class="severity-tag critical">CRITICAL</span></td>
+            <td>env_var</td>
+            <td>Rotate</td>
+            <td>Action needed</td>
+          </tr>
+          <tr>
+            <td>Semgrep</td>
+            <td>api/routes.py</td>
+            <<td>sql-injection</td>
+            <td><span class="severity-tag high">HIGH</span></td>
+            <td>eval(user_input)</td>
+            <td>--</td>
+            <td>Fix required</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card full">
+    <div class="card-header">
+      <h2>&#128279; Repository Integration Status</h2>
+      <span class="status-badge info">14 repos</span>
+    </div>
+    <div class="card-body">
+      <div class="integration-grid" id="integrationGrid">
+        <div class="integration-card">
+          <div class="repo-name">kirov-auth-service</div>
+          <div class="repo-status" style="color:var(--green)">&#9679; Secured</div>
+        </div>
+        <div class="integration-card">
+          <div class="repo-name">kirov-api-gateway</div>
+          <div class="repo-status" style="color:var(--green)">&#9679; Secured</div>
+        </div>
+        <div class="integration-card">
+          <div class="repo-name">kirov-user-service</div>
+          <div class="repo-status" style="color:var(--green)">&#9679; Secured</div>
+        </div>
+        <div class="integration-card">
+          <div class="repo-name">kirov-payment-service</div>
+          <div class="repo-status" style="color:var(--orange)">&#9679; 2 vulns</div>
+        </div>
+        <div class="integration-card">
+          <div class="repo-name">kirov-notification-svc</div>
+          <div class="repo-status" style="color:var(--green)">&#9679; Secured</div>
+        </div>
+        <div class="integration-card">
+          <div class="repo-name">kirov-analytics-engine</div>
+          <div class="repo-status" style="color:var(--orange)">&#9679; 1 vuln</div>
+        </div>
+        <div class="integration-card">
+          <div class="repo-name">kirov-iac-terraform</div>
+          <div class="repo-status" style="color:var(--green)">&#9679; Compliant</div>
+        </div>
+        <div class="integration-card">
+          <div class="repo-name">kirov-helm-charts</div>
+          <div class="repo-status" style="color:var(--green)">&#9679; Compliant</div>
+        </div>
+        <div class="integration-card">
+          <div class="repo-name">kirov-frontend-web</div>
+          <div class="repo-status" style="color:var(--orange)">&#9679; 3 vulns</div>
+        </div>
+        <div class="integration-card">
+          <div class="repo-name">kirov-mobile-api</div>
+          <div class="repo-status" style="color:var(--green)">&#9679; Secured</div>
+        </div>
+        <div class="integration-card">
+          <div class="repo-name">kirov-cache-service</div>
+          <div class="repo-status" style="color:var(--green)">&#9679; Secured</div>
+        </div>
+        <div class="integration-card">
+          <div class="repo-name">kirov-queue-processor</div>
+          <div class="repo-status" style="color:var(--green)">&#9679; Secured</div>
+        </div>
+        <div class="integration-card">
+          <div class="repo-name">kirov-database-migrations</div>
+          <div class="repo-status" style="color:var(--green)">&#9679; Secured</div>
+        </div>
+        <div class="integration-card">
+          <div class="repo-name">kirov-cli-tool</div>
+          <div class="repo-status" style="color:var(--red)">&#9679; Offline</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px;border-top:1px solid var(--border)">
+    Kirov DevSecOps Suite v1.0.0 &mdash; Dashboard auto-refreshes every 60 seconds<br>
+    Scanning 14 repositories across 7 security tools &mdash; CIS Benchmark v1.5 aligned
+  </div>
+</div>
+
+<script>
+  function toggleStage(header) {
+    const details = header.nextElementSibling;
+    details.classList.toggle('open');
+  }
+
+  function formatDate() {
+    const now = new Date();
+    return now.toLocaleString('en-US', {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      timeZoneName: 'short'
+    });
+  }
+
+  function simulateData() {
+    // Simulated pipeline data - in production this would come from API
+    const data = {
+      totalScans: 142,
+      totalVulns: 23,
+      vulnChange: '-12% from last week',
+      complianceScore: 87,
+      gateStatus: 'PASSED',
+      fixableCount: 15,
+      severity: { critical: 3, high: 7, medium: 8, low: 5 },
+      trends: [18, 16, 14, 15, 12, 9, 7, 6],
+      compliance: { passed: 128, failed: 19, total: 147 },
+    };
+
+    document.getElementById('lastUpdated').textContent = formatDate();
+    document.getElementById('totalScans').textContent = data.totalScans;
+    document.getElementById('totalVulns').textContent = data.totalVulns;
+    document.getElementById('vulnChange').textContent = data.vulnChange;
+    document.getElementById('complianceScore').textContent = data.complianceScore + '%';
+    document.getElementById('complianceBadge').querySelector('span').textContent = data.complianceScore + '%';
+    document.getElementById('gateStatus').textContent = data.gateStatus;
+    document.getElementById('fixableCount').textContent = data.fixableCount;
+
+    const total = data.severity.critical + data.severity.high + data.severity.medium + data.severity.low;
+    document.getElementById('vulnSummaryBadge').textContent = total + ' total';
+
+    const bar = (val) => total > 0 ? (val / total * 100) + '%' : '0%';
+    document.getElementById('barCritical').style.width = bar(data.severity.critical);
+    document.getElementById('barHigh').style.width = bar(data.severity.high);
+    document.getElementById('barMedium').style.width = bar(data.severity.medium);
+    document.getElementById('barLow').style.width = bar(data.severity.low);
+    document.getElementById('countCritical').textContent = data.severity.critical;
+    document.getElementById('countHigh').textContent = data.severity.high;
+    document.getElementById('countMedium').textContent = data.severity.medium;
+    document.getElementById('countLow').textContent = data.severity.low;
+
+    document.getElementById('complianceStatus').textContent = data.complianceScore + '%';
+    document.getElementById('gaugeScore').textContent = data.complianceScore + '%';
+    const gauge = document.querySelector('.gauge');
+    gauge.style.background = `conic-gradient(
+      var(--green) 0% ${data.complianceScore}%,
+      var(--orange) ${data.complianceScore}% ${Math.min(data.complianceScore + 8, 100)}%,
+      var(--red) ${Math.min(data.complianceScore + 8, 100)}% 100%
+    )`;
+    document.getElementById('compliancePass').textContent = data.compliance.passed;
+    document.getElementById('complianceFail').textContent = data.compliance.failed;
+    document.getElementById('complianceTotal').textContent = data.compliance.total;
+
+    data.trends.forEach((val, i) => {
+      const el = document.getElementById('trendW' + (i + 1));
+      if (el) el.textContent = val;
+      const barEl = document.querySelector(`[data-week="W${i + 1}"]`);
+      if (barEl) {
+        const maxVal = Math.max(...data.trends, 1);
+        barEl.style.height = (val / maxVal * 80 + 10) + '%';
+        barEl.style.background = val > 15 ? 'var(--red)' : val > 10 ? 'var(--orange)' : val > 5 ? 'var(--blue)' : 'var(--green)';
+      }
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', simulateData);
+  setInterval(simulateData, 60000);
+</script>
+</body>
+</html>

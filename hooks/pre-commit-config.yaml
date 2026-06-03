@@ -1,0 +1,186 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+        description: Trims trailing whitespace in all text files
+        stages: [commit, push]
+
+      - id: end-of-file-fixer
+        name: Fix EOF newlines
+        description: Ensures files end with a single newline
+        stages: [commit]
+
+      - id: check-yaml
+        name: Check YAML syntax
+        description: Validates YAML file syntax
+        stages: [commit]
+
+      - id: check-json
+        name: Check JSON syntax
+        description: Validates JSON file syntax
+        stages: [commit]
+
+      - id: check-added-large-files
+        name: Check large files
+        description: Prevents files >5MB from being committed
+        args: [--maxkb=5120]
+        stages: [commit]
+
+      - id: check-merge-conflict
+        name: Check merge conflicts
+        description: Detects unresolved merge conflict markers
+        stages: [commit, push]
+
+      - id: detect-private-key
+        name: Detect private keys
+        description: Detects private key files (.pem, .key, etc.)
+        stages: [commit]
+
+      - id: check-case-conflict
+        name: Check case conflicts
+        description: Detects case-insensitive filename conflicts
+        stages: [commit]
+
+      - id: check-executables-have-shebangs
+        name: Check executable shebangs
+        description: Ensures executable files have proper shebangs
+        stages: [commit]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+        name: Gitleaks secret detection
+        description: Scans for hardcoded secrets, API keys, passwords, and tokens
+        args: [--verbose, --redact]
+        stages: [commit, push]
+
+  - repo: local
+    hooks:
+      - id: branch-naming
+        name: Branch naming convention
+        description: Enforces branch naming convention (feature/, bugfix/, hotfix/, release/, chore/)
+        language: script
+        entry: .hooks/check-branch-name.sh
+        stages: [push]
+        always_run: true
+        pass_filenames: false
+
+      - id: commit-message-format
+        name: Commit message format
+        description: Enforces conventional commit format (type(scope): subject)
+        language: pygrep
+        entry: '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .{1,100}'
+        args: [--multiline]
+        stages: [commit-msg]
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.1.0
+    hooks:
+      - id: flake8
+        name: Flake8 Python lint
+        description: Lints Python files with flake8
+        args: [--max-line-length=100, --max-complexity=10]
+        stages: [commit]
+        types: [python]
+
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v9.3.0
+    hooks:
+      - id: eslint
+        name: ESLint JavaScript lint
+        description: Lints JavaScript/TypeScript files
+        args: [--fix]
+        stages: [commit]
+        types: [javascript]
+        additional_dependencies:
+          - eslint@8
+
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        name: ShellCheck shell script lint
+        description: Lints shell scripts for correctness
+        stages: [commit]
+        types: [shell]
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        name: Detect secrets
+        description: Additional secret detection using entropy analysis
+        args: [--exclude-files, '\.gitignore|\.pre-commit-config\.yaml']
+        stages: [commit]
+
+  - repo: https://github.com/IQAndreas/markdown-link-check
+    rev: v3.12.0
+    hooks:
+      - id: markdown-link-check
+        name: Check markdown links
+        description: Validates URLs in markdown files
+        stages: [commit]
+        types: [markdown]
+
+  - repo: https://github.com/sirosen/check-jsonschema
+    rev: 0.29.0
+    hooks:
+      - id: check-github-actions
+        name: Check GitHub Actions
+        description: Validates GitHub Actions workflow files
+        stages: [commit]
+        files: ^\.github/workflows/
+
+      - id: check-dependabot
+        name: Check Dependabot config
+        description: Validates Dependabot configuration
+        stages: [commit]
+        files: ^\.github/dependabot\.yml$
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.1
+    hooks:
+      - id: actionlint
+        name: Actionlint
+        description: Lints GitHub Actions workflow files
+        stages: [commit]
+        files: ^\.github/workflows/
+
+  - repo: local
+    hooks:
+      - id: prevent-debug-statements
+        name: Prevent debug statements
+        description: Blocks console.log, print, debugger, pdb, ipdb, etc.
+        language: pygrep
+        entry: '(console\.log\(|print\(|debugger|import pdb|import ipdb|breakpoint\(\)|from IPython)'
+        exclude: '^(test/|tests/|\.pre-commit-config\.yaml)'
+        stages: [commit]
+
+      - id: prevent-todo
+        name: Prevent TODO/FIXME/XOXO
+        description: Blocks TODO, FIXME, HACK, XXX, BUG, WORKAROUND markers
+        language: pygrep
+        entry: '(TODO|FIXME|HACK|XXX|BUG|WORKAROUND|TEMP|WIP)(?!\s*:)'
+        exclude: '\.pre-commit-config\.yaml'
+        stages: [commit]
+
+      - id: check-forbidden-files
+        name: Check forbidden files
+        description: Blocks .env files, .credentials, .password files from commit
+        language: fail
+        entry: Found forbidden file(s) - .env, credentials, password files must not be committed
+        files: '(\.env|\.credentials|\.password|secret|\.p12|\.pfx|\.key)'
+        exclude: '\.env\.example'
+        stages: [commit]
+
+  - repo: https://github.com/Lucas-C/pre-commit-hooks-safety
+    rev: v1.3.3
+    hooks:
+      - id: python-safety-dependencies-check
+        name: Safety check Python dependencies
+        description: Checks Python dependencies for known vulnerabilities
+        stages: [commit]
+        files: requirements.*\.txt

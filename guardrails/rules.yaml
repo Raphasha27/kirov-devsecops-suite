@@ -1,0 +1,547 @@
+# Kirov DevSecOps Guardrails - Policy-as-Code Rules
+# ====================================================
+# These rules are enforced at pipeline runtime. Violations in BLOCK
+# policies cause pipeline failure. WARN policies produce alerts.
+
+meta:
+  name: kirov-devsecops-guardrails
+  version: 1.0.0
+  description: Policy-as-code rules for the Kirov DevSecOps Suite
+  contact: security@kirov.dev
+  last_updated: 2026-06-03
+
+# =============================================================================
+# SECTION 1: Dependency Blocklist
+# =============================================================================
+# Block high-risk dependencies from being introduced into the codebase.
+
+dependency_blocklist:
+  policy: BLOCK
+  description: Block list for high/critical risk dependencies
+  rules:
+    - id: DEP-001
+      severity: CRITICAL
+      category: known-exploited
+      ecosystems:
+        - pypi
+        - npm
+        - go
+      packages:
+        - name: event-stream
+          reason: "CVE-2018-16487 - flatmap-stream dependency backdoor (npm)"
+        - name: flatmap-stream
+          reason: "CVE-2018-16487 - malicious code injection"
+        - name: ua-parser-js
+          version: <0.7.28
+          reason: "CVE-2021-32650 - ReDoS vulnerability"
+        - name: lodash
+          version: <4.17.21
+          reason: "CVE-2021-23337 - prototype pollution"
+        - name: axios
+          version: <0.21.2
+          reason: "CVE-2021-3749 - SSRF vulnerability"
+        - name: minimist
+          version: <1.2.6
+          reason: "CVE-2021-44906 - prototype pollution"
+        - name: node-fetch
+          version: <2.6.7
+          reason: "CVE-2022-0235 - URL request poisoning"
+        - name: ansi-regex
+          version: <5.0.1
+          reason: "CVE-2021-3807 - ReDoS vulnerability"
+        - name: urijs
+          version: <1.19.11
+          reason: "CVE-2022-1242 - XSS via hostname"
+        - name: log4j-core
+          versions:
+            - ">=2.0,<2.17.0"
+          reason: "CVE-2021-44228 - Log4Shell RCE vulnerability"
+        - name: jackson-databind
+          versions:
+            - ">=2.0,<2.13.4.2"
+          reason: "CVE-2022-42003 - Deserialization RCE"
+        - name: spring-core
+          versions:
+            - ">=5.0,<5.3.20"
+          reason: "CVE-2022-22965 - SpringShell RCE"
+        - name: django
+          versions:
+            - ">=3.2,<3.2.19"
+            - ">=4.0,<4.0.9"
+          reason: "CVE-2023-31047 - SQL injection via Truncator"
+        - name: flask
+          version: <2.3.2
+          reason: Multiple high-severity CVEs
+        - name: requests
+          version: <2.31.0
+          reason: "CVE-2023-32681 - information disclosure via redirect"
+        - name: urllib3
+          version: <2.0.6
+          reason: "CVE-2023-43804 - cookie header injection"
+        - name: certifi
+          version: <2023.7.22
+          reason: "CVE-2023-37920 - e-trust certificate revocation"
+        - name: jinja2
+          version: <3.1.3
+          reason: "CVE-2024-22195 - XSS via xmlattr filter"
+        - name: cryptography
+          version: <41.0.6
+          reason: "CVE-2023-49083 - NULL pointer dereference"
+        - name: golang.org/x/net
+          version: <0.17.0
+          reason: "CVE-2023-39325 - HTTP/2 rapid reset attack"
+
+# =============================================================================
+# SECTION 2: Allowed Base Images
+# =============================================================================
+# Only explicitly allowed base images may be used in Dockerfiles.
+
+allowed_base_images:
+  policy: BLOCK
+  description: Only approved base images may be used in Dockerfiles
+  rules:
+    - id: IMG-001
+      severity: CRITICAL
+      category: base-image
+      registries:
+        - docker.io
+        - ghcr.io
+        - gcr.io
+        - amazonaws.com
+        - mcr.microsoft.com
+        - registry.access.redhat.com
+      allowed_images:
+        # Official distroless images
+        - gcr.io/distroless/base*
+        - gcr.io/distroless/static*
+        - gcr.io/distroless/nodejs*
+        - gcr.io/distroless/python3*
+        - gcr.io/distroless/java*
+        # Official language runtimes (slim variants)
+        - docker.io/library/python:*slim*
+        - docker.io/library/python:*alpine*
+        - docker.io/library/node:*slim*
+        - docker.io/library/node:*alpine*
+        - docker.io/library/golang:*alpine*
+        - docker.io/library/openjdk:*slim*
+        - docker.io/library/eclipse-temurin:*alpine*
+        - docker.io/library/maven:*alpine*
+        # Red Hat UBI minimal
+        - registry.access.redhat.com/ubi8/ubi-minimal
+        - registry.access.redhat.com/ubi9/ubi-minimal
+        # Chainguard (wolfi)
+        - cgr.dev/chainguard/*
+        # Microsoft .NET
+        - mcr.microsoft.com/dotnet/aspnet:*alpine*
+        - mcr.microsoft.com/dotnet/sdk:*alpine*
+        # Alpine (for build stages only)
+        - docker.io/library/alpine:3.1[89]
+        - docker.io/library/alpine:3.2[0-9]
+      denied_images:
+        - docker.io/library/ubuntu:latest
+        - docker.io/library/debian:latest
+        - docker.io/library/centos:latest
+        - docker.io/library/node:latest
+        - docker.io/library/python:latest
+        - "*:latest"
+      requirements:
+        - "Build stages SHOULD use alpine or slim variants"
+        - "Final stages MUST use distroless, scratch, ubi-minimal, or chainguard"
+        - "Latest tag is PROHIBITED - pin specific versions"
+        - "Image digest pinning is PREFERRED over version tags"
+
+# =============================================================================
+# SECTION 3: Port Exposure Rules
+# =============================================================================
+# Controls which ports may be exposed by containers.
+
+port_exposure:
+  policy: WARN
+  description: Rules governing container port exposure
+  rules:
+    - id: PORT-001
+      severity: HIGH
+      category: network
+      description: Port 22 (SSH) must not be exposed
+      port: 22
+      protocol: tcp
+      action: BLOCK
+      message: "SSH port (22) exposed. Use exec shells via kubectl/SSM instead."
+      remediation: "Remove EXPOSE 22 from Dockerfile"
+
+    - id: PORT-002
+      severity: HIGH
+      category: network
+      description: Port 3389 (RDP) must not be exposed
+      port: 3389
+      protocol: tcp
+      action: BLOCK
+      message: "RDP port (3389) exposed. Use bastion hosts or VPN instead."
+
+    - id: PORT-003
+      severity: MEDIUM
+      category: network
+      description: Only standard application ports should be exposed
+      allowed_ports:
+        - 80    # HTTP
+        - 443   # HTTPS
+        - 3000  # Common app port
+        - 5000  # Flask/Go
+        - 8080  # Common alternative HTTP
+        - 8443  # Alternative HTTPS
+        - 9090  # Prometheus / custom
+        - 9312  # Sphinx search
+        - 11211 # Memcached (scoped)
+        - 27017 # MongoDB (scoped)
+        - 5432  # PostgreSQL (scoped)
+        - 6379  # Redis (scoped)
+      action: WARN
+      message: "Non-standard port exposed. Verify this is intentional."
+
+    - id: PORT-004
+      severity: MEDIUM
+      category: network
+      description: Well-known privileged ports should have justification
+      privileged_ports:
+        - 1
+        - 7
+        - 9
+        - 11
+        - 13
+        - 17
+        - 19
+        - 20
+        - 21
+        - 23
+        - 25
+        - 37
+        - 42
+        - 43
+        - 49
+        - 53
+        - 69
+        - 70
+        - 79
+        - 87
+        - 95
+        - 101
+        - 102
+        - 103
+        - 104
+        - 109
+        - 110
+        - 111
+        - 113
+        - 115
+        - 117
+        - 119
+        - 123
+        - 135
+        - 137
+        - 138
+        - 139
+        - 143
+        - 161
+        - 162
+        - 179
+        - 389
+        - 427
+        - 443
+        - 444
+        - 445
+        - 464
+        - 465
+        - 500
+        - 512
+        - 513
+        - 514
+        - 515
+        - 520
+        - 521
+        - 540
+        - 548
+        - 554
+        - 546
+        - 547
+        - 560
+        - 561
+        - 563
+        - 587
+        - 591
+        - 593
+        - 631
+        - 636
+        - 639
+        - 646
+        - 657
+        - 660
+        - 666
+        - 674
+        - 688
+        - 691
+        - 694
+        - 749
+        - 750
+        - 751
+        - 765
+        - 767
+        - 873
+        - 902
+        - 903
+        - 911
+        - 912
+        - 981
+      action: WARN
+      message: "Privileged port (1-1024) exposed. Ensure this is required."
+
+# =============================================================================
+# SECTION 4: Privilege Escalation Prevention
+# =============================================================================
+# Rules to prevent privilege escalation in containers.
+
+privilege_escalation:
+  policy: BLOCK
+  description: Prevent privilege escalation in containers
+  rules:
+    - id: PRIV-001
+      severity: CRITICAL
+      category: container-security
+      check: privileged
+      description: "Containers must not run in privileged mode"
+      action: BLOCK
+      message: "privileged: true detected. Containers must never run in privileged mode."
+      remediation: "Remove 'privileged: true' from container security context"
+      k8s_field: "spec.containers[*].securityContext.privileged"
+      docker_field: "privileged"
+
+    - id: PRIV-002
+      severity: HIGH
+      category: container-security
+      check: allowPrivilegeEscalation
+      description: "Containers must not allow privilege escalation"
+      action: BLOCK
+      message: "allowPrivilegeEscalation: true detected. This can allow privilege escalation via setuid binaries."
+      remediation: "Set 'allowPrivilegeEscalation: false' in container security context"
+      k8s_field: "spec.containers[*].securityContext.allowPrivilegeEscalation"
+      docker_field: "N/A (defaults to true)"
+
+    - id: PRIV-003
+      severity: HIGH
+      category: container-security
+      check: runAsUser
+      description: "Containers must not run as root (UID 0)"
+      action: BLOCK
+      message: "Container running as root. Use a non-root user (UID > 10000)."
+      remediation: "Set 'runAsUser: 10001' or higher in security context"
+      k8s_field: "spec.containers[*].securityContext.runAsUser"
+      docker_field: "USER directive in Dockerfile"
+
+    - id: PRIV-004
+      severity: HIGH
+      category: container-security
+      check: capabilities
+      description: "Container capabilities must be restricted"
+      action: WARN
+      message: "Full Linux capabilities detected. Drop all and add only required capabilities."
+      remediation: "Set 'capabilities.drop: [ALL]' and add only needed capabilities"
+      k8s_field: "spec.containers[*].securityContext.capabilities"
+      required_drops:
+        - ALL
+      allowed_additions:
+        - NET_BIND_SERVICE
+        - NET_RAW
+        - CHOWN
+        - DAC_OVERRIDE
+        - FOWNER
+        - FSETID
+        - KILL
+        - SETGID
+        - SETUID
+        - SETPCAP
+        - SYS_CHROOT
+
+    - id: PRIV-005
+      severity: MEDIUM
+      category: container-security
+      check: seccomp
+      description: "Seccomp profile should be configured"
+      action: WARN
+      message: "No seccomp profile set. Use RuntimeDefault for production."
+      remediation: "Set 'seccompProfile.type: RuntimeDefault' in security context"
+      k8s_field: "spec.containers[*].securityContext.seccompProfile"
+
+    - id: PRIV-006
+      severity: MEDIUM
+      category: container-security
+      check: seLinuxOptions
+      description: "SELinux options should be configured for enhanced security"
+      action: WARN
+      message: "No SELinux context configured."
+      remediation: "Configure seLinuxOptions for workload isolation"
+
+# =============================================================================
+# SECTION 5: Read-Only Root Filesystem
+# =============================================================================
+# Rules requiring read-only root filesystem for containers.
+
+readonly_rootfs:
+  policy: BLOCK
+  description: Containers must use read-only root filesystem
+  rules:
+    - id: ROFS-001
+      severity: HIGH
+      category: container-security
+      check: readOnlyRootFilesystem
+      description: "Container root filesystem must be read-only"
+      action: BLOCK
+      message: "readOnlyRootFilesystem not set to true. Containers should have immutable rootfs."
+      remediation: "Set 'readOnlyRootFilesystem: true' in security context"
+      k8s_field: "spec.containers[*].securityContext.readOnlyRootFilesystem"
+      docker_run_flag: "--read-only"
+      exceptions:
+        - "Temporary write directories MUST use emptyDir volumes"
+        - "Log directories MUST be mounted as tmpfs or emptyDir"
+        - "Application data directories MUST use persistent volumes"
+
+    - id: ROFS-002
+      severity: MEDIUM
+      category: container-security
+      check: writablePaths
+      description: "Writable paths should be explicitly declared"
+      action: WARN
+      message: "Container has writable rootfs or emptyDir mounts. Verify these are needed."
+      remediation: "Remove unnecessary emptyDir mounts or make rootfs read-only"
+      allowed_writable_paths:
+        - /tmp
+        - /var/run
+        - /var/log
+        - /var/cache
+        - /var/spool
+        - /data
+        - /app/data
+
+    - id: ROFS-003
+      severity: LOW
+      category: container-security
+      check: tmpfsMounts
+      description: "Temporary filesystems should use tmpfs"
+      action: WARN
+      message: "Consider using tmpfs mounts for ephemeral data instead of emptyDir"
+      remediation: "Replace emptyDir with 'medium: Memory' where possible"
+
+# =============================================================================
+# SECTION 6: Network Security Rules
+# =============================================================================
+
+network_security:
+  policy: WARN
+  description: Network security policies for container workloads
+  rules:
+    - id: NET-001
+      severity: HIGH
+      category: network
+      description: "Containers should not use host network mode"
+      action: BLOCK
+      k8s_field: "spec.containers[*].hostNetwork"
+      message: "hostNetwork: true detected. Use pod networking instead."
+
+    - id: NET-002
+      severity: HIGH
+      category: network
+      description: "Containers should not use host ports"
+      action: WARN
+      k8s_field: "spec.containers[*].ports[*].hostPort"
+      message: "hostPort detected. Use NodePort or LoadBalancer instead."
+
+    - id: NET-003
+      severity: MEDIUM
+      category: network
+      description: "Network policies should be defined"
+      action: WARN
+      check: networkPolicy
+      message: "No NetworkPolicy found for namespace. Define least-privilege network policies."
+
+    - id: NET-004
+      severity: MEDIUM
+      category: network
+      description: "Ingress should use TLS"
+      action: WARN
+      check: ingressTLS
+      message: "Ingress without TLS configured. All ingress should use TLS 1.2+."
+
+# =============================================================================
+# SECTION 7: Secrets Management
+# =============================================================================
+
+secrets_management:
+  policy: BLOCK
+  description: Rules for secrets handling in code and configuration
+  rules:
+    - id: SEC-001
+      severity: CRITICAL
+      category: secrets
+      description: "Hardcoded secrets in code are forbidden"
+      action: BLOCK
+      message: "Potential hardcoded secret detected. Use secret management solution."
+      patterns:
+        - "(?i)(password|passwd|secret|token|api[_-]?key|apikey).{0,5}[:=].{0,5}['\"][^'\"]{8,}['\"]"
+        - "(?i)(aws_access_key_id|aws_secret_access_key).{0,5}[:=].{0,5}['\"][^'\"]+['\"]"
+        - "(?i)-----BEGIN (RSA|EC|DSA|OPENSSH|PGP) PRIVATE KEY-----"
+        - "(?i)ghp_[a-zA-Z0-9]{36}"
+        - "(?i)gho_[a-zA-Z0-9]{36}"
+        - "(?i)ghu_[a-zA-Z0-9]{36}"
+        - "(?i)ghs_[a-zA-Z0-9]{36}"
+        - "(?i)ghr_[a-zA-Z0-9]{36}"
+        - "(?i)xox[baprs]-[0-9a-zA-Z]{10,}"
+        - "(?i)sk_live_[0-9a-zA-Z]+"
+        - "(?i)pk_live_[0-9a-zA-Z]+"
+        - "(?i)AKIA[0-9A-Z]{16}"
+        - "(?i)-----BEGIN CERTIFICATE-----"
+      remediation: "Use vault, AWS Secrets Manager, or Kubernetes Secrets with external secrets operator"
+
+    - id: SEC-002
+      severity: HIGH
+      category: secrets
+      description: "Environment variables should reference secrets, not embed them"
+      action: WARN
+      patterns:
+        - "env:.*value.*password"
+        - "env:.*value.*secret"
+        - "env:.*value.*token"
+
+# =============================================================================
+# SECTION 8: Resource Limits
+# =============================================================================
+
+resource_limits:
+  policy: WARN
+  description: Resource limit requirements for containers
+  rules:
+    - id: RES-001
+      severity: HIGH
+      category: resource-management
+      description: "Container CPU and memory limits are required"
+      action: WARN
+      k8s_fields:
+        - "spec.containers[*].resources.limits.cpu"
+        - "spec.containers[*].resources.limits.memory"
+      message: "Resource limits not defined. Set CPU and memory limits for all containers."
+      remediation: "Add resources.limits.cpu and resources.limits.memory to container spec"
+
+    - id: RES-002
+      severity: MEDIUM
+      category: resource-management
+      description: "Container resource requests are recommended"
+      action: WARN
+      k8s_fields:
+        - "spec.containers[*].resources.requests.cpu"
+        - "spec.containers[*].resources.requests.memory"
+      message: "Resource requests not defined. Set CPU and memory requests for scheduling."
+
+    - id: RES-003
+      severity: LOW
+      category: resource-management
+      description: "CPU limits should not exceed 4 cores per container"
+      action: WARN
+      max_cpu: "4"
+      message: "CPU limit exceeds recommended maximum of 4 cores."
