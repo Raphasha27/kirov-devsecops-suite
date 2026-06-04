@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+
+# Dependencies
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vercel
+.vercel
+
+# Scan results
+dep-results/
+iac-results/
+scan-results/
+
+# Secrets
+*.pem
+*.key
+*.cert
