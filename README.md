@@ -341,6 +341,14 @@ All contributions must pass the security pipeline gate.
 
 MIT License - see [LICENSE](LICENSE) for details.
 
+<br/>
+
+---
+
+<p align="center">
+  <sub>🔒 <a href="https://github.com/Raphasha27">Raphasha27</a> Security Ecosystem — <a href="https://github.com/Raphasha27/Raphasha27">Back to Profile</a></sub>
+</p>
+
 ## Security
 
 Report vulnerabilities to security@kirov.dev. Do not file public GitHub issues for security bugs.
