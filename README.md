@@ -351,4 +351,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Security
 
-Report vulnerabilities to security@kirov.dev. Do not file public GitHub issues for security bugs.
+Report vulnerabilities to raphashakoketso99@gmail.com. Do not file public GitHub issues for security bugs.
